@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -10,9 +9,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-
 const db = initializeDatabase();
-
 
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -31,7 +28,6 @@ const authenticateToken = (req, res, next) => {
     });
 };
 
-
 const isAdmin = (req, res, next) => {
     if (req.user.role !== 'admin') {
         return res.status(403).json({ message: 'Admin access required' });
@@ -39,27 +35,32 @@ const isAdmin = (req, res, next) => {
     next();
 };
 
-// register 
+
 app.post('/api/auth/register', async (req, res) => {
-    const { username, email, password } = req.body;
+    const { username, email, password, role } = req.body;
 
     try {
         const hashedPassword = await bcrypt.hash(password, 10);
 
         db.run(`
-            INSERT INTO users (username, email, password)
-            VALUES (?, ?, ?)
-        `, [username, email, hashedPassword], function(err) {
+            INSERT INTO users (username, email, password, role)
+            VALUES (?, ?, ?, ?)
+        `, [username, email, hashedPassword, role || 'user'], function(err) {
             if (err) {
+                console.error('Registration error:', err);
                 if (err.message.includes('UNIQUE constraint failed')) {
                     return res.status(400).json({ message: 'Username or email already exists' });
                 }
                 return res.status(500).json({ message: 'Error creating user' });
             }
 
-            res.status(201).json({ message: 'User registered successfully' });
+            res.status(201).json({ 
+                message: 'User registered successfully',
+                userId: this.lastID 
+            });
         });
     } catch (err) {
+        console.error('Server error during registration:', err);
         res.status(500).json({ message: 'Error registering user' });
     }
 });
@@ -70,6 +71,7 @@ app.post('/api/auth/login', (req, res) => {
 
     db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
         if (err) {
+            console.error('Login error:', err);
             return res.status(500).json({ message: 'Error during login' });
         }
 
@@ -96,11 +98,13 @@ app.post('/api/auth/login', (req, res) => {
 app.get('/api/admin/users', authenticateToken, isAdmin, (req, res) => {
     db.all('SELECT id, username, email, role FROM users', (err, users) => {
         if (err) {
+            console.error('Error fetching users:', err);
             return res.status(500).json({ message: 'Error fetching users' });
         }
         res.json(users);
     });
 });
+
 
 app.put('/api/admin/users/:id', authenticateToken, isAdmin, (req, res) => {
     const { username, email, role } = req.body;
@@ -112,7 +116,11 @@ app.put('/api/admin/users/:id', authenticateToken, isAdmin, (req, res) => {
         WHERE id = ?
     `, [username, email, role, userId], function(err) {
         if (err) {
+            console.error('Error updating user:', err);
             return res.status(500).json({ message: 'Error updating user' });
+        }
+        if (this.changes === 0) {
+            return res.status(404).json({ message: 'User not found' });
         }
         res.json({ message: 'User updated successfully' });
     });
@@ -124,20 +132,23 @@ app.delete('/api/admin/users/:id', authenticateToken, isAdmin, (req, res) => {
 
     db.run('DELETE FROM users WHERE id = ?', [userId], function(err) {
         if (err) {
+            console.error('Error deleting user:', err);
             return res.status(500).json({ message: 'Error deleting user' });
+        }
+        if (this.changes === 0) {
+            return res.status(404).json({ message: 'User not found' });
         }
         res.json({ message: 'User deleted successfully' });
     });
 });
 
-// update  
+
 app.put('/api/users/profile', authenticateToken, async (req, res) => {
     const { username, email, currentPassword, newPassword } = req.body;
     const userId = req.user.id;
 
     try {
         if (newPassword) {
-           
             const user = await new Promise((resolve, reject) => {
                 db.get('SELECT * FROM users WHERE id = ?', [userId], (err, row) => {
                     if (err) reject(err);
@@ -158,6 +169,7 @@ app.put('/api/users/profile', authenticateToken, async (req, res) => {
                 WHERE id = ?
             `, [username, email, hashedPassword, userId], function(err) {
                 if (err) {
+                    console.error('Error updating profile with password:', err);
                     return res.status(500).json({ message: 'Error updating profile' });
                 }
                 
@@ -176,6 +188,7 @@ app.put('/api/users/profile', authenticateToken, async (req, res) => {
                 WHERE id = ?
             `, [username, email, userId], function(err) {
                 if (err) {
+                    console.error('Error updating profile:', err);
                     return res.status(500).json({ message: 'Error updating profile' });
                 }
                 
@@ -189,6 +202,7 @@ app.put('/api/users/profile', authenticateToken, async (req, res) => {
             });
         }
     } catch (err) {
+        console.error('Server error during profile update:', err);
         res.status(500).json({ message: 'Error updating profile' });
     }
 });

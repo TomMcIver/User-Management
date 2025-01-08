@@ -34,6 +34,7 @@ const UserManagement = () => {
   const [formData, setFormData] = useState({
     username: '',
     email: '',
+    password: '',
     role: 'user'
   });
 
@@ -47,6 +48,7 @@ const UserManagement = () => {
       setUsers(response.data);
     } catch (err) {
       setError('Failed to fetch users');
+      console.error('Error fetching users:', err);
     }
   };
 
@@ -60,13 +62,15 @@ const UserManagement = () => {
       setFormData({
         username: user.username,
         email: user.email,
-        role: user.role
+        role: user.role,
+        password: ''
       });
     } else {
       setSelectedUser(null);
       setFormData({
         username: '',
         email: '',
+        password: '',
         role: 'user'
       });
     }
@@ -79,8 +83,11 @@ const UserManagement = () => {
     setFormData({
       username: '',
       email: '',
+      password: '',
       role: 'user'
     });
+    setError('');
+    setSuccess('');
   };
 
   const handleChange = (e) => {
@@ -95,11 +102,23 @@ const UserManagement = () => {
     setError('');
     setSuccess('');
 
+   
+    if (!formData.username || !formData.email || (!selectedUser && !formData.password)) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
     try {
       if (selectedUser) {
+        const updateData = {
+          username: formData.username,
+          email: formData.email,
+          role: formData.role
+        };
+        
         await axios.put(
-          `http://localhost:5000/api/admin/users/${selectedUser._id}`,
-          formData,
+          `http://localhost:5000/api/admin/users/${selectedUser.id}`,
+          updateData,
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem('token')}`
@@ -108,8 +127,9 @@ const UserManagement = () => {
         );
         setSuccess('User updated successfully');
       } else {
+        // Create new user
         await axios.post(
-          'http://localhost:5000/api/admin/users',
+          'http://localhost:5000/api/auth/register',
           formData,
           {
             headers: {
@@ -119,9 +139,14 @@ const UserManagement = () => {
         );
         setSuccess('User created successfully');
       }
-      fetchUsers();
+      await fetchUsers();
       handleClose();
     } catch (err) {
+      console.error('Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status
+      });
       setError(err.response?.data?.message || 'Error processing request');
     }
   };
@@ -135,8 +160,9 @@ const UserManagement = () => {
           }
         });
         setSuccess('User deleted successfully');
-        fetchUsers();
+        await fetchUsers();
       } catch (err) {
+        console.error('Delete error:', err);
         setError('Failed to delete user');
       }
     }
@@ -181,7 +207,7 @@ const UserManagement = () => {
             </TableHead>
             <TableBody>
               {users.map((user) => (
-                <TableRow key={user._id}>
+                <TableRow key={user.id}>
                   <TableCell>{user.username}</TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>{user.role}</TableCell>
@@ -194,7 +220,7 @@ const UserManagement = () => {
                     </IconButton>
                     <IconButton
                       color="error"
-                      onClick={() => handleDelete(user._id)}
+                      onClick={() => handleDelete(user.id)}
                     >
                       <Delete />
                     </IconButton>
@@ -229,6 +255,18 @@ const UserManagement = () => {
               value={formData.email}
               onChange={handleChange}
             />
+            {!selectedUser && (
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                name="password"
+                label="Password"
+                type="password"
+                value={formData.password}
+                onChange={handleChange}
+              />
+            )}
             <FormControl fullWidth margin="normal">
               <InputLabel>Role</InputLabel>
               <Select
@@ -244,7 +282,7 @@ const UserManagement = () => {
           </DialogContent>
           <DialogActions>
             <Button onClick={handleClose}>Cancel</Button>
-            <Button onClick={handleSubmit} variant="contained">
+            <Button onClick={handleSubmit} variant="contained" color="primary">
               {selectedUser ? 'Update' : 'Create'}
             </Button>
           </DialogActions>
