@@ -41,6 +41,13 @@ const Navbar = () => {
         </Typography>
         {user ? (
           <Box>
+            <Button 
+              color="inherit" 
+              onClick={() => navigate('/dashboard')}
+              sx={{ mr: 2 }}
+            >
+              Dashboard
+            </Button>
             <IconButton
               size="large"
               onClick={handleMenu}
@@ -53,6 +60,12 @@ const Navbar = () => {
               open={Boolean(anchorEl)}
               onClose={handleClose}
             >
+              <MenuItem onClick={() => {
+                handleClose();
+                navigate('/dashboard');
+              }}>
+                Dashboard
+              </MenuItem>
               <MenuItem onClick={() => {
                 handleClose();
                 navigate('/profile');

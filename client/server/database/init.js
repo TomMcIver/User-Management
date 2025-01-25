@@ -1,4 +1,3 @@
-
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const config = require('../config/config');
@@ -16,6 +15,7 @@ const initializeDatabase = () => {
 };
 
 const createTables = (db) => {
+    
     db.run(`
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,6 +34,24 @@ const createTables = (db) => {
                 INSERT OR IGNORE INTO users (username, email, password, role)
                 VALUES (?, ?, ?, ?)
             `, ['admin', 'admin@example.com', adminPassword, 'admin']);
+        }
+    });
+
+    
+    db.run(`
+        CREATE TABLE IF NOT EXISTS activities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            action_type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            target_user_id INTEGER,
+            FOREIGN KEY (user_id) REFERENCES users (id),
+            FOREIGN KEY (target_user_id) REFERENCES users (id)
+        )
+    `, (err) => {
+        if (err) {
+            console.error('Error creating activities table:', err);
         }
     });
 };

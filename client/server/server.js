@@ -11,6 +11,19 @@ app.use(express.json());
 
 const db = initializeDatabase();
 
+
+const logActivity = (db, userId, actionType, description, targetUserId = null) => {
+    const query = `
+        INSERT INTO activities (user_id, action_type, description, target_user_id)
+        VALUES (?, ?, ?, ?)
+    `;
+    db.run(query, [userId, actionType, description, targetUserId], (err) => {
+        if (err) {
+            console.error('Error logging activity:', err);
+        }
+    });
+};
+
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -36,6 +49,16 @@ const isAdmin = (req, res, next) => {
 };
 
 
+app.get('/api/auth/verify', authenticateToken, (req, res) => {
+    db.get('SELECT id FROM users WHERE id = ?', [req.user.id], (err, user) => {
+        if (err || !user) {
+            return res.status(401).json({ valid: false });
+        }
+        res.json({ valid: true });
+    });
+});
+
+
 app.post('/api/auth/register', async (req, res) => {
     const { username, email, password, role } = req.body;
 
@@ -53,6 +76,14 @@ app.post('/api/auth/register', async (req, res) => {
                 }
                 return res.status(500).json({ message: 'Error creating user' });
             }
+
+            
+            const actorId = req.user ? req.user.id : this.lastID; 
+            const description = req.user ? 
+                `Admin created new account for ${username}` : 
+                `New user account created: ${username}`;
+            
+            logActivity(db, actorId, 'ACCOUNT_CREATED', description, this.lastID);
 
             res.status(201).json({ 
                 message: 'User registered successfully',
@@ -90,6 +121,7 @@ app.post('/api/auth/login', (req, res) => {
             { expiresIn: '24h' }
         );
 
+        logActivity(db, user.id, 'USER_LOGIN', `${user.username} logged in`);
         res.json({ token });
     });
 });
@@ -122,6 +154,10 @@ app.put('/api/admin/users/:id', authenticateToken, isAdmin, (req, res) => {
         if (this.changes === 0) {
             return res.status(404).json({ message: 'User not found' });
         }
+
+        logActivity(db, req.user.id, 'USER_UPDATED',
+            `Updated user information for ${username}`, userId);
+
         res.json({ message: 'User updated successfully' });
     });
 });
@@ -130,15 +166,23 @@ app.put('/api/admin/users/:id', authenticateToken, isAdmin, (req, res) => {
 app.delete('/api/admin/users/:id', authenticateToken, isAdmin, (req, res) => {
     const userId = req.params.id;
 
-    db.run('DELETE FROM users WHERE id = ?', [userId], function(err) {
-        if (err) {
-            console.error('Error deleting user:', err);
-            return res.status(500).json({ message: 'Error deleting user' });
-        }
-        if (this.changes === 0) {
+    
+    db.get('SELECT username FROM users WHERE id = ?', [userId], (err, user) => {
+        if (err || !user) {
             return res.status(404).json({ message: 'User not found' });
         }
-        res.json({ message: 'User deleted successfully' });
+
+        db.run('DELETE FROM users WHERE id = ?', [userId], function(err) {
+            if (err) {
+                console.error('Error deleting user:', err);
+                return res.status(500).json({ message: 'Error deleting user' });
+            }
+
+            logActivity(db, req.user.id, 'USER_DELETED',
+                `Deleted user account: ${user.username}`, userId);
+
+            res.json({ message: 'User deleted successfully' });
+        });
     });
 });
 
@@ -173,6 +217,9 @@ app.put('/api/users/profile', authenticateToken, async (req, res) => {
                     return res.status(500).json({ message: 'Error updating profile' });
                 }
                 
+                logActivity(db, userId, 'PASSWORD_CHANGED',
+                    'Changed account password', userId);
+
                 const token = jwt.sign(
                     { id: userId, username, email, role: user.role },
                     config.JWT_SECRET,
@@ -192,6 +239,9 @@ app.put('/api/users/profile', authenticateToken, async (req, res) => {
                     return res.status(500).json({ message: 'Error updating profile' });
                 }
                 
+                logActivity(db, userId, 'PROFILE_UPDATED',
+                    'Updated profile information', userId);
+
                 const token = jwt.sign(
                     { id: userId, username, email, role: req.user.role },
                     config.JWT_SECRET,
@@ -205,6 +255,40 @@ app.put('/api/users/profile', authenticateToken, async (req, res) => {
         console.error('Server error during profile update:', err);
         res.status(500).json({ message: 'Error updating profile' });
     }
+});
+
+app.get('/api/users/activities', authenticateToken, (req, res) => {
+    const userId = req.user.id;
+    const isAdmin = req.user.role === 'admin';
+    
+    let query = `
+        SELECT 
+            a.id,
+            a.action_type,
+            a.description,
+            a.created_at,
+            u.username as actor_username,
+            tu.username as target_username
+        FROM activities a
+        LEFT JOIN users u ON a.user_id = u.id
+        LEFT JOIN users tu ON a.target_user_id = tu.id
+        WHERE 1=1
+    `;
+    
+
+    if (!isAdmin) {
+        query += ' AND (a.user_id = ? OR a.target_user_id = ?)';
+    }
+    
+    query += ' ORDER BY a.created_at DESC LIMIT 50';
+    
+    db.all(query, !isAdmin ? [userId, userId] : [], (err, activities) => {
+        if (err) {
+            console.error('Error fetching activities:', err);
+            return res.status(500).json({ message: 'Error fetching activities' });
+        }
+        res.json(activities);
+    });
 });
 
 app.listen(config.PORT, () => {
